@@ -82,6 +82,9 @@ firmware/tsp_synaptics/synaptics_b0_4_3.fw
 firmware/tsp_synaptics/synaptics_b0_5_1.fw
 firmware/tsp_synaptics/synaptics_b0_5_1_fac.fw
 firmware/tsp_synaptics/synaptics_b0_fac.fw
+firmware/tsp_synaptics/synaptics_b0_nep_13.fw
+firmware/tsp_synaptics/synaptics_b0_nep_14.fw
+firmware/tsp_synaptics/synaptics_b0_nep_19.fw
 arch/arm/boot/compressed/lib1funcs.S
 firmware/tsp_melfas/CORE.fw
 firmware/tsp_melfas/CORE.fw.gen.S
