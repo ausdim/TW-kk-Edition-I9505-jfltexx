@@ -39,8 +39,12 @@
 
 #include "blk.h"
 
+extern void set_cur_sched(const char *name);
+
 static DEFINE_SPINLOCK(elv_list_lock);
 static LIST_HEAD(elv_list);
+static struct request_queue *globalq[50];
+static unsigned int queue_size = 0;
 
 /*
  * Merge hash stuff.
@@ -269,6 +273,14 @@ int elevator_init(struct request_queue *q, char *name)
 	}
 
 	q->elevator = eq;
+	
+	q->index = queue_size;
+	globalq[queue_size] = q;
+	pr_alert("ELEVATOR_INIT:  %s-%d\n", q->elevator->type->elevator_name, queue_size);
+	queue_size += 1;
+	if (queue_size > 40)
+		queue_size = 10;
+
 	return 0;
 }
 EXPORT_SYMBOL(elevator_init);
@@ -585,6 +597,41 @@ void elv_requeue_request(struct request_queue *q, struct request *rq)
 	__elv_add_request(q, rq, ELEVATOR_INSERT_REQUEUE);
 }
 
+/**
+ * elv_reinsert_request() - Insert a request back to the scheduler
+ * @q:		request queue where request should be inserted
+ * @rq:		request to be inserted
+ *
+ * This function returns the request back to the scheduler to be
+ * inserted as if it was never dispatched
+ *
+ * Return: 0 on success, error code on failure
+ */
+int elv_reinsert_request(struct request_queue *q, struct request *rq)
+{
+	int res;
+
+	if (!q->elevator->type->ops.elevator_reinsert_req_fn)
+		return -EPERM;
+
+	res = q->elevator->type->ops.elevator_reinsert_req_fn(q, rq);
+	if (!res) {
+		/*
+		 * it already went through dequeue, we need to decrement the
+		 * in_flight count again
+		 */
+		if (blk_account_rq(rq)) {
+			q->in_flight[rq_is_sync(rq)]--;
+			if (rq->cmd_flags & REQ_SORTED)
+				elv_deactivate_rq(q, rq);
+		}
+		rq->cmd_flags &= ~REQ_STARTED;
+		q->nr_sorted++;
+	}
+
+	return res;
+}
+
 void elv_drain_elevator(struct request_queue *q)
 {
 	static int printed;
@@ -779,6 +826,10 @@ void elv_completed_request(struct request_queue *q, struct request *rq)
 {
 	struct elevator_queue *e = q->elevator;
 
+	if (rq->cmd_flags & REQ_URGENT) {
+		q->notified_urgent = false;
+		q->dispatched_urgent = false;
+	}
 	/*
 	 * request is released from the driver, io must be done
 	 */
@@ -994,10 +1045,22 @@ fail_register:
 	return err;
 }
 
+int elevator_change_relay(const char *name, int screen_status)
+{
+	/*int i = 0;
+	for (i = 0; i < queue_size; i++)
+	{
+		if (i != 1 && i != 2)
+			elevator_change(globalq[i], name);
+	}*/
+	elevator_change(globalq[0], name);
+	return 0;
+}
+
 /*
  * Switch this queue to the given IO scheduler.
  */
-int elevator_change(struct request_queue *q, const char *name)
+static int __elevator_change(struct request_queue *q, const char *name)
 {
 	char elevator_name[ELV_NAME_MAX];
 	struct elevator_type *e;
@@ -1019,6 +1082,18 @@ int elevator_change(struct request_queue *q, const char *name)
 
 	return elevator_switch(q, e);
 }
+
+int elevator_change(struct request_queue *q, const char *name)
+{
+	int ret;
+
+	/* Protect q->elevator from elevator_init() */
+	mutex_lock(&q->sysfs_lock);
+	ret = __elevator_change(q, name);
+	mutex_unlock(&q->sysfs_lock);
+
+	return ret;
+}
 EXPORT_SYMBOL(elevator_change);
 
 ssize_t elv_iosched_store(struct request_queue *q, const char *name,
@@ -1029,7 +1104,11 @@ ssize_t elv_iosched_store(struct request_queue *q, const char *name,
 	if (!q->elevator)
 		return count;
 
-	ret = elevator_change(q, name);
+	ret = __elevator_change(q, name);
+	globalq[q->index] = q;
+	//pr_alert("IOSCHED_STORE: %s-%s-%s-%d\n", name, q->elevator->type->elevator_name, globalq[q->index]->elevator->type->elevator_name, q->index);
+	set_cur_sched(name);
+	
 	if (!ret)
 		return count;
 
