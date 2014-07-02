@@ -27,6 +27,11 @@
 #define SIOP_INPUT_LIMIT_CURRENT 1200
 #define SIOP_CHARGING_LIMIT_CURRENT 1000
 
+extern void send_cable_state(unsigned int state);
+extern void send_cable_state_kt(unsigned int state);
+int gwc_w_state = 0;
+bool ktoonservative_is_active_chrgW = false;
+
 struct max77693_charger_data {
 	struct max77693_dev	*max77693;
 
@@ -747,6 +752,9 @@ static int sec_chg_set_property(struct power_supply *psy,
 	const int wpc_charging_current = charger->pdata->charging_current[
 		POWER_SUPPLY_TYPE_WIRELESS].input_current_limit;
 
+	/* check and unlock */
+	check_charger_unlock_state(charger);
+	
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 		charger->status = val->intval;
@@ -1081,7 +1089,10 @@ static void wpc_detect_work(struct work_struct *work)
 				POWER_SUPPLY_PROP_ONLINE, value);
 		pr_info("%s: wpc activated, set V_INT as PN\n",
 				__func__);
-	} else if (wc_w_state == 0) {
+		send_cable_state(10);
+		if (ktoonservative_is_active_chrgW)
+			send_cable_state_kt(10);
+	} else if ((chg_data->wc_w_state == 1) && (wc_w_state == 0)) {
 		if (!chg_data->is_charging)
 			max77693_set_charger_state(chg_data, true);
 		max77693_read_reg(chg_data->max77693->i2c,
@@ -1103,12 +1114,26 @@ static void wpc_detect_work(struct work_struct *work)
 					POWER_SUPPLY_PROP_ONLINE, value);
 			pr_info("%s: wpc deactivated, set V_INT as PD\n",
 					__func__);
+			send_cable_state(0);
+			if (ktoonservative_is_active_chrgW)
+				send_cable_state_kt(0);
 		}
 	}
 	pr_info("%s: w(%d to %d)\n", __func__,
 			chg_data->wc_w_state, wc_w_state);
 
 	chg_data->wc_w_state = wc_w_state;
+	gwc_w_state = wc_w_state;
+}
+
+int get_cable_stateW(void)
+{
+	return gwc_w_state;
+}
+
+void ktoonservative_is_activechrgW(bool val)
+{
+	ktoonservative_is_active_chrgW = val;
 }
 
 static irqreturn_t wpc_charger_irq(int irq, void *data)

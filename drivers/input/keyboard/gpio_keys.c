@@ -40,6 +40,23 @@
 #include <linux/i2c/synaptics_rmi_msm8930.h>
 #endif
 
+
+extern void screen_is_on_relay_kt(bool state);
+extern void boostpulse_relay_kt(void);
+static bool ktoonservative_is_activef = false;
+static bool screen_state = true;
+
+void ktoonservative_is_activehk(bool val)
+{
+  ktoonservative_is_activef = val;
+}
+
+void set_screen_on_off_flaghk(bool onoff)
+{
+  screen_state = onoff;
+}
+
+
 struct gpio_button_data {
 	struct gpio_keys_button *button;
 	struct input_dev *input;
@@ -422,6 +439,13 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 	struct input_dev *input = bdata->input;
 	unsigned int type = button->type ?: EV_KEY;
 	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
+
+	if (ktoonservative_is_activef && button->code == KEY_HOMEPAGE && state)
+	{
+		screen_is_on_relay_kt(true);
+		boostpulse_relay_kt();
+		//pr_alert("KT_RELAY_CALL  FROM HOME\n");
+	}
 
 #if defined(CONFIG_SEC_DEBUG)
 	sec_debug_check_crash_key(button->code, state);
