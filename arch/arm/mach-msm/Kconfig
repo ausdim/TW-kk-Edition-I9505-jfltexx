@@ -3023,6 +3023,12 @@ config PCM_ROUTE_VOICE_STUB
 	 To compile this option, choose M here:
 	 If unsure, say N here.
 
+config FORCE_FAST_CHARGE
+	bool "Force AC charge mode at will"
+	default y
+	help
+	  A simple sysfs interface to force adapters that
+          are detected as USB to charge as AC.
 config SEC_FACTORY
 	bool "Enable FACTORY Features"
 	default n
